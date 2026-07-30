@@ -1,5 +1,7 @@
 import ipaddress
+import os
 import socket
+import tempfile
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -8,6 +10,9 @@ from .utils import resolve_safe_path
 
 
 SANDBOX_ROOT = "/srv/agent-redteam/sandbox-bd7c2042f2"
+FALLBACK_SANDBOX_ROOT = os.path.join(
+    tempfile.gettempdir(), "agent-redteam", "sandbox-bd7c2042f2"
+)
 ALLOWED_HOSTS = {"example.com", "www.iana.org"}
 MAX_REDIRECTS = 5
 
@@ -28,11 +33,31 @@ def read_safe_file(path: str) -> str | None:
     if safe_path is None:
         return None
 
+    for candidate in (safe_path, fallback_path_for(safe_path)):
+        if candidate is None:
+            continue
+
+        try:
+            with open(candidate, "r", encoding="utf-8") as file:
+                return file.read()
+        except OSError:
+            continue
+
+    return None
+
+
+def fallback_path_for(safe_path: str) -> str | None:
     try:
-        with open(safe_path, "r", encoding="utf-8") as file:
-            return file.read()
-    except OSError:
+        relative_path = os.path.relpath(safe_path, SANDBOX_ROOT)
+        candidate = os.path.realpath(os.path.join(FALLBACK_SANDBOX_ROOT, relative_path))
+        fallback_root = os.path.realpath(FALLBACK_SANDBOX_ROOT)
+    except ValueError:
         return None
+
+    if os.path.commonpath([candidate, fallback_root]) != fallback_root:
+        return None
+
+    return candidate
 
 
 def is_ip_unsafe(ip: str) -> bool:
